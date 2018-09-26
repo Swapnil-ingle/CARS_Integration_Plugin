@@ -6,9 +6,9 @@
   <record> 
     <name>com.krishagni.openspecimen.msk2.importer.MskCARSDetail</name>
 	
-	<field>
+    <field>
       <caption>#getMessage("msk_cars_cp_id")</caption>
-      <attribute>cpid</attribute>
+      <attribute>cpID</attribute>
     </field>
     
     <field>

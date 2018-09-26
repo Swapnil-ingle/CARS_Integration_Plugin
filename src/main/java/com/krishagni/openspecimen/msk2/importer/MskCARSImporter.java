@@ -43,12 +43,11 @@ public class MskCARSImporter implements ObjectImporter<MskCARSDetail, MskCARSDet
 		
 		return null;
 	}
-
 				
-	private ResponseEvent<CollectionProtocolRegistrationDetail> importCp(MskCARSDetail object) {
+	private ResponseEvent<CollectionProtocolRegistrationDetail> importCp(MskCARSDetail object) throws Exception {
 		CollectionProtocolDetail cpDetail = new CollectionProtocolDetail();
-		cpDetail.setTitle(object.getCpid());
-		cpDetail.setShortTitle(object.getCpid());
+		cpDetail.setTitle(object.getCpID());
+		cpDetail.setShortTitle(object.getCpID());
 		setCpSites(object, cpDetail);
 		setCpPI(object, cpDetail);
 		

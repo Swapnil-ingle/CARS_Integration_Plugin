@@ -2,19 +2,11 @@ package com.krishagni.openspecimen.msk2.importer;
 
 public class MskCARSDetail {
 	
-	private String cpid;
+	private String cpID;
 	
 	private String cpSite;
 	
 	private String cpPI;
-
-	public String getCpid() {
-		return cpid;
-	}
-
-	public void setCpid(String cpid) {
-		this.cpid = cpid;
-	}
 
 	public String getCpSite() {
 		return cpSite;
@@ -30,5 +22,13 @@ public class MskCARSDetail {
 
 	public void setCpPI(String cpPI) {
 		this.cpPI = cpPI;
+	}
+
+	public String getCpID() {
+		return cpID;
+	}
+
+	public void setCpID(String cpID) {
+		this.cpID = cpID;
 	}
 }
