@@ -1,0 +1,25 @@
+#macro(getMessage $code)$messageSource.getMessage($code, null, $locale)#end
+
+<object-schema>
+  <name>msk_cars</name>
+
+  <record> 
+    <name>com.krishagni.openspecimen.msk2.importer.CarsDetail</name>
+	
+    <field>
+      <caption>#getMessage("msk_cars_irb_number")</caption>
+      <attribute>irbNumber</attribute>
+    </field>
+    
+    <field>
+      <caption>#getMessage("msk_cars_facility")</caption>
+      <attribute>facility</attribute>
+    </field>
+    
+    <field>
+      <caption>#getMessage("msk_cars_pi")</caption>
+      <attribute>pi</attribute>
+    </field>
+	    
+  </record>
+</object-schema>

@@ -7,6 +7,6 @@
     http://www.springframework.org/schema/context 
     http://www.springframework.org/schema/context/spring-context-3.2.xsd">
     
-    <bean id="mskCARSImporter" class="com.krishagni.openspecimen.msk2.importer.MskCARSImporter"/>
+    <bean id="mskCarsImporter" class="com.krishagni.openspecimen.msk2.importer.CarsImporter"/>
     
 </beans>

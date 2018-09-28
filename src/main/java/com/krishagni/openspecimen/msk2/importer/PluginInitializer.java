@@ -21,7 +21,7 @@ public class PluginInitializer implements InitializingBean {
 
 	@Override
 	public void afterPropertiesSet() throws Exception {
-		objectSchemaFactory.registerSchema("com/krishagni/importcsv/core/schema/msk-cars.xml");
-		objectImporterFactory.registerImporter("msk_cars", new MskCARSImporter());
+		objectSchemaFactory.registerSchema("com/krishagni/openspecimen/msk2/schema/msk-cars.xml");
+		objectImporterFactory.registerImporter("msk_cars", new CarsImporter());
 	}
 }

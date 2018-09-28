@@ -1,13 +1,11 @@
 package com.krishagni.openspecimen.msk2.importer;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Configurable;
 
 import com.krishagni.catissueplus.core.biospecimen.events.CollectionProtocolDetail;
-import com.krishagni.catissueplus.core.biospecimen.events.CollectionProtocolRegistrationDetail;
 import com.krishagni.catissueplus.core.biospecimen.events.CollectionProtocolSiteDetail;
 import com.krishagni.catissueplus.core.biospecimen.services.CollectionProtocolService;
 import com.krishagni.catissueplus.core.common.PlusTransactional;
@@ -19,15 +17,15 @@ import com.krishagni.catissueplus.core.importer.events.ImportObjectDetail;
 import com.krishagni.catissueplus.core.importer.services.ObjectImporter;
 
 @Configurable
-public class MskCARSImporter implements ObjectImporter<MskCARSDetail, MskCARSDetail> {
+public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	
 	@Autowired
 	private CollectionProtocolService cpSvc;
 	
 	@Override
-	public ResponseEvent<MskCARSDetail> importObject(RequestEvent<ImportObjectDetail<MskCARSDetail>> req) {
+	public ResponseEvent<CarsDetail> importObject(RequestEvent<ImportObjectDetail<CarsDetail>> req) {
 		try {
-			ImportObjectDetail<MskCARSDetail> detail = req.getPayload();
+			ImportObjectDetail<CarsDetail> detail = req.getPayload();
 			importRecord(detail);
 			return ResponseEvent.response(detail.getObject());
 		} catch (OpenSpecimenException ose) {
@@ -38,39 +36,36 @@ public class MskCARSImporter implements ObjectImporter<MskCARSDetail, MskCARSDet
 	}
 	
 	@PlusTransactional
-	private ResponseEvent<Object> importRecord(ImportObjectDetail<MskCARSDetail> detail) throws Exception {
+	private ResponseEvent<Object> importRecord(ImportObjectDetail<CarsDetail> detail) throws Exception {
 		importCp(detail.getObject());
 		
 		return null;
 	}
 				
-	private ResponseEvent<CollectionProtocolRegistrationDetail> importCp(MskCARSDetail object) throws Exception {
+	private CollectionProtocolDetail importCp(CarsDetail input) throws Exception {
 		CollectionProtocolDetail cpDetail = new CollectionProtocolDetail();
-		cpDetail.setTitle(object.getCpID());
-		cpDetail.setShortTitle(object.getCpID());
-		setCpSites(object, cpDetail);
-		setCpPI(object, cpDetail);
+		cpDetail.setTitle(input.getIrbNumber());
+		cpDetail.setShortTitle(input.getIrbNumber());
+		setCpSites(input, cpDetail);
+		setCpPI(input, cpDetail);
 		
 		ResponseEvent<CollectionProtocolDetail> resp = cpSvc.createCollectionProtocol(request(cpDetail));
 		resp.throwErrorIfUnsuccessful();
 		
-		return null;
+		return resp.getPayload();
 	}
 
-	private void setCpPI(MskCARSDetail object, CollectionProtocolDetail cpDetail) {
+	private void setCpPI(CarsDetail input, CollectionProtocolDetail cpDetail) {
 		UserSummary pi = new UserSummary();
-		pi.setEmailAddress(object.getCpPI());
+		pi.setEmailAddress(input.getPi());
 		cpDetail.setPrincipalInvestigator(pi);
 	}
 
-	private void setCpSites(MskCARSDetail object, CollectionProtocolDetail cpDetail) {
-		List<CollectionProtocolSiteDetail> sites = new ArrayList<CollectionProtocolSiteDetail>();
+	private void setCpSites(CarsDetail input, CollectionProtocolDetail cpDetail) {
 		CollectionProtocolSiteDetail cpSite = new CollectionProtocolSiteDetail();
-	
-		cpSite.setSiteName(object.getCpSite());
-		sites.add(cpSite);
+		cpSite.setSiteName(input.getFacility());
 		
-		cpDetail.setCpSites(sites);
+		cpDetail.setCpSites(Arrays.asList(cpSite));
 	}
 
 	private <T> RequestEvent<T> request(T payload) {
