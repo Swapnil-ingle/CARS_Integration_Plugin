@@ -20,6 +20,21 @@
       <caption>#getMessage("msk_cars_pi")</caption>
       <attribute>pi</attribute>
     </field>
-	    
+    
+    <field>
+      <caption>#getMessage("msk_cars_procedure_name")</caption>
+      <attribute>procedureName</attribute>
+    </field>
+    
+    <field>
+      <caption>#getMessage("msk_cars_cycle_name")</caption>
+      <attribute>cycleName</attribute>
+    </field>
+    
+    <field>
+      <caption>#getMessage("msk_cars_timepoint_name")</caption>
+      <attribute>timepointName</attribute>
+    </field>
+    
   </record>
 </object-schema>
