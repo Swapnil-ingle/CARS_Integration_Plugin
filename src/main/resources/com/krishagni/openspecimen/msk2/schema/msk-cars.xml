@@ -36,5 +36,15 @@
       <attribute>timepointName</attribute>
     </field>
     
+    <field>
+      <caption>#getMessage("msk_cars_specimen_type")</caption>
+      <attribute>specimenType</attribute>
+    </field>
+    
+    <field>
+      <caption>#getMessage("msk_cars_collection_container")</caption>
+      <attribute>collectionContainer</attribute>
+    </field>
+    
   </record>
 </object-schema>

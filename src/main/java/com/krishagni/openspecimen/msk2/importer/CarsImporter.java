@@ -1,16 +1,18 @@
 package com.krishagni.openspecimen.msk2.importer;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Configurable;
 
+import com.krishagni.catissueplus.core.administrative.events.ListPvCriteria;
+import com.krishagni.catissueplus.core.administrative.events.PvDetail;
 import com.krishagni.catissueplus.core.biospecimen.domain.CollectionProtocol;
 import com.krishagni.catissueplus.core.biospecimen.domain.CollectionProtocolEvent;
 import com.krishagni.catissueplus.core.biospecimen.domain.SpecimenRequirement;
@@ -25,16 +27,18 @@ import com.krishagni.catissueplus.core.common.errors.OpenSpecimenException;
 import com.krishagni.catissueplus.core.common.events.RequestEvent;
 import com.krishagni.catissueplus.core.common.events.ResponseEvent;
 import com.krishagni.catissueplus.core.common.events.UserSummary;
+import com.krishagni.catissueplus.core.common.service.PermissibleValueService;
 import com.krishagni.catissueplus.core.importer.events.ImportObjectDetail;
 import com.krishagni.catissueplus.core.importer.services.ObjectImporter;
 
 @Configurable
 public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	
-	private final static Log logger = LogFactory.getLog(CarsImporter.class);
-	
 	@Autowired
 	private CollectionProtocolService cpSvc;
+	
+	@Autowired
+	private PermissibleValueService pvSvc;
 	
 	@Autowired
 	private DaoFactory daoFactory;
@@ -69,10 +73,8 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		CollectionProtocolDetail cpDetail = cpMap.get(event.getCpShortTitle());
 		
 		if (cpDetail == null) {
-			// Not seen in this run
 			if (getCpFromDB(event.getCpShortTitle()) == null) {
-				// Also not in DB
-		        cpDetail = createCp(detail.getObject());
+		        	cpDetail = createCp(detail.getObject());
 			}
 			cpMap.put(event.getCpShortTitle(), cpDetail);
 		}
@@ -84,17 +86,13 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		CollectionProtocolEventDetail eventDetail = eventsMap.get(event.getEventLabel());
 		
 		if (eventDetail == null) {
-			// Not seen in this run
-			// Try getting from DB
 			CollectionProtocolEvent eventFromDb = getEventFromDb(event.getCpShortTitle(), event.getEventLabel());
 			eventDetail = eventFromDb != null ? CollectionProtocolEventDetail.from(eventFromDb) : null;
 		}
 		
 		if (eventDetail != null) {
-			// Present in DB
 			updateEvent(cpDetail, eventDetail, event);
 		} else {
-			// Not in DB also so create new
 			eventDetail = createEvent(cpDetail, event);
 		}
 		
@@ -104,36 +102,23 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		// Checking Specimen Requirement
 		//////////////////////////////
 		
-		SpecimenRequirementDetail srDetail = srMap.get(event.getSpecimenRequirements().get(0).getName());
+		SpecimenRequirementDetail srDetail = srMap.get(event.getSpecimenRequirements().iterator().next().getName());
 		
 		if (srDetail == null) {
-			// Not seen in this run
-			// Try getting from DB
 			SpecimenRequirement srFromDb = getSrFromDb(event.getCpShortTitle(),
 								event.getEventLabel(), 
-								event.getSpecimenRequirements().get(0).getName());
+								event.getSpecimenRequirements().iterator().next().getName());
 			
 			srDetail = srFromDb != null ? SpecimenRequirementDetail.from(srFromDb) : null;
 		}
 		
 		if (srDetail != null) {
-			// Present in DB
 			updateSr();
 		} else {
-			// Not in DB also so create new SR
-			srDetail = createSr();
+			srDetail = createSr(event.getSpecimenRequirements());
 		}
 		
-		srMap.put(event.getSpecimenRequirements().get(0).getName(), srDetail);
-		
-		//////////////////
-		// For Testing
-		/////////////////
-		
-		logger.info(" Printing Maps... \n");
-		logger.info(eventsMap + "\n");
-		logger.info(cpMap + "\n");
-		logger.info(srMap + "\n");
+		srMap.put(event.getSpecimenRequirements().iterator().next().getName(), srDetail);
 		
 		return null;
 	}
@@ -144,10 +129,35 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		
 		eventDetail.setCpShortTitle(detail.getIrbNumber());
 		eventDetail.setEventLabel(detail.getCycleName() + detail.getTimepointName());
+		
+		srDetail.setCpShortTitle(detail.getIrbNumber());
+		srDetail.setType(detail.getSpecimenType());
+		srDetail.setStorageType("Virtual");
+		srDetail.setAnatomicSite("Not Specified");
+		srDetail.setLaterality("Not Specified");
+		srDetail.setPathology("Not Specified");
+		srDetail.setCollectionProcedure("Not Specified");
+		srDetail.setEventLabel(detail.getCycleName() + detail.getTimepointName());
 		srDetail.setName(detail.getProcedureName());
+		srDetail.setInitialQty(new BigDecimal(0));
+		srDetail.setCollectionContainer(detail.getCollectionContainer());
+		srDetail.setSpecimenClass(getSpecimenClass(detail.getSpecimenType()));
+		
 		eventDetail.setSpecimenRequirements(Arrays.asList(srDetail));
 		
 		return eventDetail;
+	}
+
+	private String getSpecimenClass(String specimenType) {
+		ListPvCriteria crit = new ListPvCriteria()
+				.includeParentValue(true)
+				.parentAttribute("specimen_type")
+				.values(Collections.singletonList(specimenType));
+		
+		ResponseEvent<List<PvDetail>> resp = pvSvc.getPermissibleValues(request(crit));
+		List<PvDetail> payload = resp.getPayload();
+		
+		return payload.isEmpty() ? "" : payload.iterator().next().getParentValue();
 	}
 
 	private <T> RequestEvent<T> request(T payload) {
@@ -178,8 +188,12 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		return null;
 	}
 	
-	private SpecimenRequirementDetail createSr() {
-		return null;
+	private SpecimenRequirementDetail createSr(List<SpecimenRequirementDetail> sprDetails) throws Exception{
+		SpecimenRequirementDetail sprDetail = sprDetails.iterator().next();
+		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.addSpecimenRequirement(request(sprDetail));
+		resp.throwErrorIfUnsuccessful();
+		
+		return resp.getPayload();
 	}
 
 	private void updateSr() {
@@ -197,12 +211,20 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	}
 	
 	private CollectionProtocolEventDetail createEvent(CollectionProtocolDetail cpDetail,
-			CollectionProtocolEventDetail event) {
-		return null;
+			CollectionProtocolEventDetail event) throws Exception {
+		CollectionProtocolEventDetail eventDetail = new CollectionProtocolEventDetail();
+		eventDetail.setCpShortTitle(cpDetail.getShortTitle());
+		eventDetail.setEventLabel(event.getEventLabel());
+		
+		ResponseEvent<CollectionProtocolEventDetail> resp = cpSvc.addEvent(request(event));
+		resp.throwErrorIfUnsuccessful();
+		
+		return resp.getPayload();
 	}
 
 	private void updateEvent(CollectionProtocolDetail cpDetail, CollectionProtocolEventDetail eventDetail,
 			CollectionProtocolEventDetail event) {
+		
 	}
 	
 	//////////////////////////
