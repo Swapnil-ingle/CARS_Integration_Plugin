@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Configurable;
 
@@ -105,15 +106,12 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		SpecimenRequirementDetail srDetail = srMap.get(event.getSpecimenRequirements().iterator().next().getName());
 		
 		if (srDetail == null) {
-			SpecimenRequirement srFromDb = getSrFromDb(event.getCpShortTitle(),
-								event.getEventLabel(), 
-								event.getSpecimenRequirements().iterator().next().getName());
-			
+			SpecimenRequirement srFromDb = getSrFromDb(event);
 			srDetail = srFromDb != null ? SpecimenRequirementDetail.from(srFromDb) : null;
 		}
 		
 		if (srDetail != null) {
-			updateSr();
+			updateSr(event.getSpecimenRequirements(), srDetail);
 		} else {
 			srDetail = createSr(event.getSpecimenRequirements());
 		}
@@ -122,7 +120,7 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		
 		return null;
 	}
-	
+
 	private CollectionProtocolEventDetail toEvent(CarsDetail detail) {
 		CollectionProtocolEventDetail eventDetail = new CollectionProtocolEventDetail();
 		SpecimenRequirementDetail srDetail = new SpecimenRequirementDetail();
@@ -170,8 +168,11 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	//
 	/////////////////////////
 	
-	private SpecimenRequirement getSrFromDb(String cpShortTitle, String eventLabel, String srName) {
-		CollectionProtocolEvent cpe = daoFactory.getCollectionProtocolDao().getCpeByShortTitleAndEventLabel(cpShortTitle, eventLabel);
+	private SpecimenRequirement getSrFromDb(CollectionProtocolEventDetail event) {
+		String srName = event.getSpecimenRequirements().iterator().next().getName();
+		CollectionProtocolEvent cpe = daoFactory
+				.getCollectionProtocolDao()
+				.getCpeByShortTitleAndEventLabel(event.getCpShortTitle(), event.getEventLabel());
 		
 		Set<SpecimenRequirement> specimenRequirements = cpe != null ? cpe.getSpecimenRequirements() : Collections.emptySet();
 		
@@ -180,7 +181,7 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		//
 		
 		for (SpecimenRequirement req : specimenRequirements) {
-			if (req.getName() == srName) {
+			if (StringUtils.equals(req.getName(), srName)) {
 				return req;
 			}
 		}
@@ -188,7 +189,7 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		return null;
 	}
 	
-	private SpecimenRequirementDetail createSr(List<SpecimenRequirementDetail> sprDetails) throws Exception{
+	private SpecimenRequirementDetail createSr(List<SpecimenRequirementDetail> sprDetails) throws Exception {
 		SpecimenRequirementDetail sprDetail = sprDetails.iterator().next();
 		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.addSpecimenRequirement(request(sprDetail));
 		resp.throwErrorIfUnsuccessful();
@@ -196,8 +197,13 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		return resp.getPayload();
 	}
 
-	private void updateSr() {
+	private SpecimenRequirementDetail updateSr(List<SpecimenRequirementDetail> srDetails, SpecimenRequirementDetail srFromDb) throws Exception {
+		SpecimenRequirementDetail sprDetail = srDetails.iterator().next();
+		sprDetail.setId(srFromDb.getId());
+		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.updateSpecimenRequirement(request(sprDetail));
+		resp.throwErrorIfUnsuccessful();
 		
+		return resp.getPayload();
 	}
 	
 	////////////////////////////////
