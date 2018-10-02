@@ -67,56 +67,9 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	private ResponseEvent<Object> importRecord(ImportObjectDetail<CarsDetail> detail) throws Exception {
 		CollectionProtocolEventDetail event = toEvent(detail.getObject());
 		
-		////////////////
-		// Checking CP
-		////////////////
-		
-		CollectionProtocolDetail cpDetail = cpMap.get(event.getCpShortTitle());
-		
-		if (cpDetail == null) {
-			if (getCpFromDB(event.getCpShortTitle()) == null) {
-		        	cpDetail = createCp(detail.getObject());
-			}
-			cpMap.put(event.getCpShortTitle(), cpDetail);
-		}
-		
-		////////////////
-		// Checking Event
-		////////////////
-		
-		CollectionProtocolEventDetail eventDetail = eventsMap.get(event.getEventLabel());
-		
-		if (eventDetail == null) {
-			CollectionProtocolEvent eventFromDb = getEventFromDb(event.getCpShortTitle(), event.getEventLabel());
-			eventDetail = eventFromDb != null ? CollectionProtocolEventDetail.from(eventFromDb) : null;
-		}
-		
-		if (eventDetail != null) {
-			updateEvent(cpDetail, eventDetail, event);
-		} else {
-			eventDetail = createEvent(cpDetail, event);
-		}
-		
-		eventsMap.put(event.getEventLabel(), eventDetail);
-		
-		//////////////////////////////
-		// Checking Specimen Requirement
-		//////////////////////////////
-		
-		SpecimenRequirementDetail srDetail = srMap.get(event.getSpecimenRequirements().iterator().next().getName());
-		
-		if (srDetail == null) {
-			SpecimenRequirement srFromDb = getSrFromDb(event);
-			srDetail = srFromDb != null ? SpecimenRequirementDetail.from(srFromDb) : null;
-		}
-		
-		if (srDetail != null) {
-			updateSr(event.getSpecimenRequirements(), srDetail);
-		} else {
-			srDetail = createSr(event.getSpecimenRequirements());
-		}
-		
-		srMap.put(event.getSpecimenRequirements().iterator().next().getName(), srDetail);
+		CollectionProtocolDetail cpDetail = checkCp(event, detail.getObject());
+		checkEvent(cpDetail, event);
+		checkSr(event);
 		
 		return null;
 	}
@@ -130,11 +83,11 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		
 		srDetail.setCpShortTitle(detail.getIrbNumber());
 		srDetail.setType(detail.getSpecimenType());
-		srDetail.setStorageType("Virtual");
-		srDetail.setAnatomicSite("Not Specified");
-		srDetail.setLaterality("Not Specified");
-		srDetail.setPathology("Not Specified");
-		srDetail.setCollectionProcedure("Not Specified");
+		srDetail.setStorageType(SPECIMEN_STORAGE_TYPE_VIRTUAL);
+		srDetail.setAnatomicSite(NOT_SPECIFIED);
+		srDetail.setLaterality(NOT_SPECIFIED);
+		srDetail.setPathology(NOT_SPECIFIED);
+		srDetail.setCollectionProcedure(NOT_SPECIFIED);
 		srDetail.setEventLabel(detail.getCycleName() + detail.getTimepointName());
 		srDetail.setName(detail.getProcedureName());
 		srDetail.setInitialQty(new BigDecimal(0));
@@ -167,6 +120,23 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	// Specimen Requirement
 	//
 	/////////////////////////
+	
+	private void checkSr(CollectionProtocolEventDetail event) throws Exception {
+		SpecimenRequirementDetail srDetail = srMap.get(event.getSpecimenRequirements().iterator().next().getName());
+		
+		if (srDetail == null) {
+			SpecimenRequirement srFromDb = getSrFromDb(event);
+			srDetail = srFromDb != null ? SpecimenRequirementDetail.from(srFromDb) : null;
+		}
+		
+		if (srDetail != null) {
+			updateSr(event.getSpecimenRequirements(), srDetail);
+		} else {
+			srDetail = createSr(event.getSpecimenRequirements());
+		}
+		
+		srMap.put(event.getSpecimenRequirements().iterator().next().getName(), srDetail);
+	}
 	
 	private SpecimenRequirement getSrFromDb(CollectionProtocolEventDetail event) {
 		String srName = event.getSpecimenRequirements().iterator().next().getName();
@@ -211,6 +181,23 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	// Collection Protocol Event
 	//
 	///////////////////////////////
+	
+	private void checkEvent(CollectionProtocolDetail cpDetail, CollectionProtocolEventDetail event) throws Exception {
+		CollectionProtocolEventDetail eventDetail = eventsMap.get(event.getEventLabel());
+		
+		if (eventDetail == null) {
+			CollectionProtocolEvent eventFromDb = getEventFromDb(event.getCpShortTitle(), event.getEventLabel());
+			eventDetail = eventFromDb != null ? CollectionProtocolEventDetail.from(eventFromDb) : null;
+		}
+		
+		if (eventDetail != null) {
+			updateEvent(cpDetail, eventDetail, event);
+		} else {
+			eventDetail = createEvent(cpDetail, event);
+		}
+		
+		eventsMap.put(event.getEventLabel(), eventDetail);
+	}
 
 	private CollectionProtocolEvent getEventFromDb(String cpShortTitle, String eventLabel) {
 		return daoFactory.getCollectionProtocolDao().getCpeByShortTitleAndEventLabel(cpShortTitle, eventLabel);
@@ -238,9 +225,25 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	// Collection Protocol
 	//
 	/////////////////////////
-
-	private CollectionProtocol getCpFromDB(String cpShortTitle) {
-		return daoFactory.getCollectionProtocolDao().getCpByShortTitle(cpShortTitle);
+	
+	private CollectionProtocolDetail checkCp(CollectionProtocolEventDetail event, CarsDetail object) throws Exception {
+		CollectionProtocolDetail cpDetail = new CollectionProtocolDetail();
+		cpDetail = cpMap.get(event.getCpShortTitle());
+		
+		if (cpDetail == null) {
+			cpDetail = getCpFromDB(event.getCpShortTitle());
+			if (cpDetail == null) {
+		        	cpDetail = createCp(object);
+			}
+			cpMap.put(event.getCpShortTitle(), cpDetail);
+		}
+		
+		return cpDetail;
+	}
+	
+	private CollectionProtocolDetail getCpFromDB(String cpShortTitle) {
+		CollectionProtocol cp = daoFactory.getCollectionProtocolDao().getCpByShortTitle(cpShortTitle);
+		return cp != null ? CollectionProtocolDetail.from(cp) : null;
 	}
 
 	private CollectionProtocolDetail createCp(CarsDetail input) throws Exception {
@@ -268,4 +271,8 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		
 		cpDetail.setCpSites(Arrays.asList(cpSite));
 	}
+	
+	private final static String SPECIMEN_STORAGE_TYPE_VIRTUAL = "Virtual";
+	
+	private final static String NOT_SPECIFIED = "Not Specified";
 }
