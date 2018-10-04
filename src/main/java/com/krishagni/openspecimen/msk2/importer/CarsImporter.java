@@ -8,7 +8,6 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Configurable;
 
@@ -50,6 +49,10 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	
 	private Map<String, SpecimenRequirementDetail> srMap = new HashMap<>();
 	
+	private final static String SPECIMEN_STORAGE_TYPE_VIRTUAL = "Virtual";
+	
+	private final static String NOT_SPECIFIED = "Not Specified";
+	
 	@Override
 	public ResponseEvent<CarsDetail> importObject(RequestEvent<ImportObjectDetail<CarsDetail>> req) {
 		try {
@@ -65,40 +68,152 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	
 	@PlusTransactional
 	private ResponseEvent<Object> importRecord(ImportObjectDetail<CarsDetail> detail) throws Exception {
+		CollectionProtocolDetail cp = toCp(detail.getObject());
 		CollectionProtocolEventDetail event = toEvent(detail.getObject());
+		SpecimenRequirementDetail sr = toSr(detail.getObject());
 		
-		CollectionProtocolDetail cpDetail = checkCp(event, detail.getObject());
-		checkEvent(cpDetail, event);
-		checkSr(event);
+		getCp(cp);
+		getEvent(event);
+		getSr(sr);
 		
 		return null;
 	}
+	
+	private <T> RequestEvent<T> request(T payload) {
+		return new RequestEvent<T>(payload);
+	}
+	
+	//////////////////////////
+	//
+	// Collection Protocol
+	//
+	/////////////////////////
+	
+	private CollectionProtocolDetail toCp(CarsDetail input) {
+		CollectionProtocolDetail cp = new CollectionProtocolDetail();
+		
+		cp.setTitle(input.getIrbNumber());
+		cp.setShortTitle(input.getIrbNumber());
+		setCpSites(input, cp);
+		setCpPI(input, cp);
+		
+		return cp;
+	}
+	
+	private void setCpSites(CarsDetail input, CollectionProtocolDetail cpDetail) {
+		CollectionProtocolSiteDetail cpSite = new CollectionProtocolSiteDetail();
+		cpSite.setSiteName(input.getFacility());
+		
+		cpDetail.setCpSites(Arrays.asList(cpSite));
+	}
+	
+	private void setCpPI(CarsDetail input, CollectionProtocolDetail cpDetail) {
+		UserSummary pi = new UserSummary();
+		pi.setEmailAddress(input.getPi());
+		cpDetail.setPrincipalInvestigator(pi);
+	}
 
-	private CollectionProtocolEventDetail toEvent(CarsDetail detail) {
+	private CollectionProtocolDetail getCp(CollectionProtocolDetail input) throws Exception {
+		return cpMap.computeIfAbsent(input.getShortTitle(), k -> createIfAbsent(input));
+	}
+	
+	private CollectionProtocolDetail createIfAbsent(CollectionProtocolDetail input) throws OpenSpecimenException {
+		CollectionProtocolDetail dbCp = getCpFromDB(input.getShortTitle());
+		return dbCp != null ? dbCp : createCp(input);
+	}
+
+	private CollectionProtocolDetail getCpFromDB(String cpShortTitle) {
+		CollectionProtocol cp = daoFactory.getCollectionProtocolDao().getCpByShortTitle(cpShortTitle);
+		return cp != null ? CollectionProtocolDetail.from(cp) : null;
+	}
+
+	private CollectionProtocolDetail createCp(CollectionProtocolDetail cp) throws OpenSpecimenException {
+		ResponseEvent<CollectionProtocolDetail> resp = cpSvc.createCollectionProtocol(request(cp));
+		resp.throwErrorIfUnsuccessful();
+		
+		return resp.getPayload();
+	}
+
+	////////////////////////////////
+	//
+	// Collection Protocol Event
+	//
+	///////////////////////////////
+	
+	private CollectionProtocolEventDetail toEvent(CarsDetail input) {
 		CollectionProtocolEventDetail eventDetail = new CollectionProtocolEventDetail();
-		SpecimenRequirementDetail srDetail = new SpecimenRequirementDetail();
-		
-		eventDetail.setCpShortTitle(detail.getIrbNumber());
-		eventDetail.setEventLabel(detail.getCycleName() + detail.getTimepointName());
-		
-		srDetail.setCpShortTitle(detail.getIrbNumber());
-		srDetail.setType(detail.getSpecimenType());
-		srDetail.setStorageType(SPECIMEN_STORAGE_TYPE_VIRTUAL);
-		srDetail.setAnatomicSite(NOT_SPECIFIED);
-		srDetail.setLaterality(NOT_SPECIFIED);
-		srDetail.setPathology(NOT_SPECIFIED);
-		srDetail.setCollectionProcedure(NOT_SPECIFIED);
-		srDetail.setEventLabel(detail.getCycleName() + detail.getTimepointName());
-		srDetail.setName(detail.getProcedureName());
-		srDetail.setInitialQty(new BigDecimal(0));
-		srDetail.setCollectionContainer(detail.getCollectionContainer());
-		srDetail.setSpecimenClass(getSpecimenClass(detail.getSpecimenType()));
-		
-		eventDetail.setSpecimenRequirements(Arrays.asList(srDetail));
+		eventDetail.setCpShortTitle(input.getIrbNumber());
+		setEventLabel(eventDetail, input);
 		
 		return eventDetail;
 	}
+	
+	private void setEventLabel(CollectionProtocolEventDetail eventDetail, CarsDetail input) {
+		if (input.getCycleName() == null && input.getTimepointName() == null) {
+			eventDetail.setEventLabel(null);
+			return;
+		}
+		eventDetail.setEventLabel(input.getCycleName() + input.getTimepointName());
+	}
 
+	private void getEvent(CollectionProtocolEventDetail input) throws Exception {
+		CollectionProtocolEventDetail eventDetail = eventsMap.get(input.getEventLabel());
+		
+		if (eventDetail == null) {
+			CollectionProtocolEvent eventFromDb = getEventFromDb(input.getCpShortTitle(), input.getEventLabel());
+			eventDetail = eventFromDb != null ? CollectionProtocolEventDetail.from(eventFromDb) : null;
+		}
+		
+		if (eventDetail != null) {
+			updateEvent(eventDetail, input);
+		} else {
+			eventDetail = createEvent(input);
+		}
+		
+		eventsMap.put(input.getEventLabel(), eventDetail);
+	}
+
+	private CollectionProtocolEvent getEventFromDb(String cpShortTitle, String eventLabel) {
+		return daoFactory.getCollectionProtocolDao().getCpeByShortTitleAndEventLabel(cpShortTitle, eventLabel);
+	}
+	
+	private void updateEvent(CollectionProtocolEventDetail existingEvent, CollectionProtocolEventDetail newEvent) {
+		// This Scenario is not yet handled
+	}
+	
+	private CollectionProtocolEventDetail createEvent(CollectionProtocolEventDetail input) throws Exception {
+		ResponseEvent<CollectionProtocolEventDetail> resp = cpSvc.addEvent(request(input));
+		resp.throwErrorIfUnsuccessful();
+		
+		return resp.getPayload();
+	}
+
+	//////////////////////////
+	//
+	// Specimen Requirement
+	//
+	/////////////////////////
+	
+	private SpecimenRequirementDetail toSr(CarsDetail input) {
+		SpecimenRequirementDetail sr = new SpecimenRequirementDetail();
+		
+		sr.setCpShortTitle(input.getIrbNumber());
+		sr.setEventLabel(input.getCycleName() + input.getTimepointName());
+		sr.setName(input.getProcedureName());
+		sr.setType(input.getSpecimenType());
+		sr.setSpecimenClass(getSpecimenClass(input.getSpecimenType()));
+		sr.setStorageType(SPECIMEN_STORAGE_TYPE_VIRTUAL);
+		sr.setAnatomicSite(NOT_SPECIFIED);
+		sr.setLaterality(NOT_SPECIFIED);
+		sr.setPathology(NOT_SPECIFIED);
+		sr.setCollectionProcedure(NOT_SPECIFIED);
+		sr.setEventLabel(input.getCycleName() + input.getTimepointName());
+		sr.setInitialQty(new BigDecimal(0));
+		sr.setCollectionContainer(input.getCollectionContainer());
+		
+		return sr;
+	}
+	
 	private String getSpecimenClass(String specimenType) {
 		ListPvCriteria crit = new ListPvCriteria()
 				.includeParentValue(true)
@@ -110,169 +225,53 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 		
 		return payload.isEmpty() ? "" : payload.iterator().next().getParentValue();
 	}
-
-	private <T> RequestEvent<T> request(T payload) {
-		return new RequestEvent<T>(payload);
-	}
 	
-	//////////////////////////
-	//
-	// Specimen Requirement
-	//
-	/////////////////////////
-	
-	private void checkSr(CollectionProtocolEventDetail event) throws Exception {
-		SpecimenRequirementDetail srDetail = srMap.get(event.getSpecimenRequirements().iterator().next().getName());
+	private void getSr(SpecimenRequirementDetail input) throws Exception {
+		SpecimenRequirementDetail srDetail = srMap.get(input.getName());
 		
 		if (srDetail == null) {
-			SpecimenRequirement srFromDb = getSrFromDb(event);
+			SpecimenRequirement srFromDb = getSrFromDb(input);
 			srDetail = srFromDb != null ? SpecimenRequirementDetail.from(srFromDb) : null;
 		}
 		
 		if (srDetail != null) {
-			updateSr(event.getSpecimenRequirements(), srDetail);
+			updateSr(srDetail, input);
 		} else {
-			srDetail = createSr(event.getSpecimenRequirements());
+			srDetail = createSr(input);
 		}
 		
-		srMap.put(event.getSpecimenRequirements().iterator().next().getName(), srDetail);
+		srMap.put(input.getName(), srDetail);
 	}
 	
-	private SpecimenRequirement getSrFromDb(CollectionProtocolEventDetail event) {
-		String srName = event.getSpecimenRequirements().iterator().next().getName();
+	private SpecimenRequirement getSrFromDb(SpecimenRequirementDetail sr) {
 		CollectionProtocolEvent cpe = daoFactory
 				.getCollectionProtocolDao()
-				.getCpeByShortTitleAndEventLabel(event.getCpShortTitle(), event.getEventLabel());
+				.getCpeByShortTitleAndEventLabel(sr.getCpShortTitle(), sr.getEventLabel());
 		
-		Set<SpecimenRequirement> specimenRequirements = cpe != null ? cpe.getSpecimenRequirements() : Collections.emptySet();
+		Set<SpecimenRequirement> specimenRequirements = cpe != null ? cpe.getTopLevelAnticipatedSpecimens() : Collections.emptySet();
 		
 		//
 		// Currently assuming each CP -> Event -> Has only one SR with a unique name
 		//
 		
-		for (SpecimenRequirement req : specimenRequirements) {
-			if (StringUtils.equals(req.getName(), srName)) {
-				return req;
-			}
-		}
-		
-		return null;
+		String srName = sr.getName();
+		return specimenRequirements.stream()
+				.filter(req -> req.getName().equalsIgnoreCase(srName))
+				.findFirst().orElse(null);
 	}
 	
-	private SpecimenRequirementDetail createSr(List<SpecimenRequirementDetail> sprDetails) throws Exception {
-		SpecimenRequirementDetail sprDetail = sprDetails.iterator().next();
-		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.addSpecimenRequirement(request(sprDetail));
-		resp.throwErrorIfUnsuccessful();
-		
-		return resp.getPayload();
-	}
-
-	private SpecimenRequirementDetail updateSr(List<SpecimenRequirementDetail> srDetails, SpecimenRequirementDetail srFromDb) throws Exception {
-		SpecimenRequirementDetail sprDetail = srDetails.iterator().next();
-		sprDetail.setId(srFromDb.getId());
-		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.updateSpecimenRequirement(request(sprDetail));
+	private SpecimenRequirementDetail updateSr(SpecimenRequirementDetail exisitingSr, SpecimenRequirementDetail newSr) throws Exception {
+		newSr.setId(exisitingSr.getId());
+		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.updateSpecimenRequirement(request(newSr));
 		resp.throwErrorIfUnsuccessful();
 		
 		return resp.getPayload();
 	}
 	
-	////////////////////////////////
-	//
-	// Collection Protocol Event
-	//
-	///////////////////////////////
-	
-	private void checkEvent(CollectionProtocolDetail cpDetail, CollectionProtocolEventDetail event) throws Exception {
-		CollectionProtocolEventDetail eventDetail = eventsMap.get(event.getEventLabel());
-		
-		if (eventDetail == null) {
-			CollectionProtocolEvent eventFromDb = getEventFromDb(event.getCpShortTitle(), event.getEventLabel());
-			eventDetail = eventFromDb != null ? CollectionProtocolEventDetail.from(eventFromDb) : null;
-		}
-		
-		if (eventDetail != null) {
-			updateEvent(cpDetail, eventDetail, event);
-		} else {
-			eventDetail = createEvent(cpDetail, event);
-		}
-		
-		eventsMap.put(event.getEventLabel(), eventDetail);
-	}
-
-	private CollectionProtocolEvent getEventFromDb(String cpShortTitle, String eventLabel) {
-		return daoFactory.getCollectionProtocolDao().getCpeByShortTitleAndEventLabel(cpShortTitle, eventLabel);
-	}
-	
-	private CollectionProtocolEventDetail createEvent(CollectionProtocolDetail cpDetail,
-			CollectionProtocolEventDetail event) throws Exception {
-		CollectionProtocolEventDetail eventDetail = new CollectionProtocolEventDetail();
-		eventDetail.setCpShortTitle(cpDetail.getShortTitle());
-		eventDetail.setEventLabel(event.getEventLabel());
-		
-		ResponseEvent<CollectionProtocolEventDetail> resp = cpSvc.addEvent(request(event));
+	private SpecimenRequirementDetail createSr(SpecimenRequirementDetail input) throws Exception {
+		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.addSpecimenRequirement(request(input));
 		resp.throwErrorIfUnsuccessful();
 		
 		return resp.getPayload();
 	}
-
-	private void updateEvent(CollectionProtocolDetail cpDetail, CollectionProtocolEventDetail eventDetail,
-			CollectionProtocolEventDetail event) {
-		
-	}
-	
-	//////////////////////////
-	//
-	// Collection Protocol
-	//
-	/////////////////////////
-	
-	private CollectionProtocolDetail checkCp(CollectionProtocolEventDetail event, CarsDetail object) throws Exception {
-		CollectionProtocolDetail cpDetail = new CollectionProtocolDetail();
-		cpDetail = cpMap.get(event.getCpShortTitle());
-		
-		if (cpDetail == null) {
-			cpDetail = getCpFromDB(event.getCpShortTitle());
-			if (cpDetail == null) {
-		        	cpDetail = createCp(object);
-			}
-			cpMap.put(event.getCpShortTitle(), cpDetail);
-		}
-		
-		return cpDetail;
-	}
-	
-	private CollectionProtocolDetail getCpFromDB(String cpShortTitle) {
-		CollectionProtocol cp = daoFactory.getCollectionProtocolDao().getCpByShortTitle(cpShortTitle);
-		return cp != null ? CollectionProtocolDetail.from(cp) : null;
-	}
-
-	private CollectionProtocolDetail createCp(CarsDetail input) throws Exception {
-		CollectionProtocolDetail cpDetail = new CollectionProtocolDetail();
-		cpDetail.setTitle(input.getIrbNumber());
-		cpDetail.setShortTitle(input.getIrbNumber());
-		setCpSites(input, cpDetail);
-		setCpPI(input, cpDetail);
-		
-		ResponseEvent<CollectionProtocolDetail> resp = cpSvc.createCollectionProtocol(request(cpDetail));
-		resp.throwErrorIfUnsuccessful();
-		
-		return resp.getPayload();
-	}
-
-	private void setCpPI(CarsDetail input, CollectionProtocolDetail cpDetail) {
-		UserSummary pi = new UserSummary();
-		pi.setEmailAddress(input.getPi());
-		cpDetail.setPrincipalInvestigator(pi);
-	}
-
-	private void setCpSites(CarsDetail input, CollectionProtocolDetail cpDetail) {
-		CollectionProtocolSiteDetail cpSite = new CollectionProtocolSiteDetail();
-		cpSite.setSiteName(input.getFacility());
-		
-		cpDetail.setCpSites(Arrays.asList(cpSite));
-	}
-	
-	private final static String SPECIMEN_STORAGE_TYPE_VIRTUAL = "Virtual";
-	
-	private final static String NOT_SPECIFIED = "Not Specified";
 }
