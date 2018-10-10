@@ -7,11 +7,7 @@
     http://www.springframework.org/schema/context 
     http://www.springframework.org/schema/context/spring-context-3.2.xsd">
     
-    <bean id="mskCarsImporter" class="com.krishagni.openspecimen.msk2.importer.CarsImporter"/>
-    
     <bean id="mskPluginInitializer" class="com.krishagni.openspecimen.msk2.importer.PluginInitializer">
-    	<property name="objectSchemaFactory" ref="objectSchemaFactory"/>
-    	<property name="objectImporterFactory" ref="objectImporterFactory"/>
     </bean>
     
 </beans>

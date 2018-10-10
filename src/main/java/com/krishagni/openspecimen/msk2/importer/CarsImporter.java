@@ -8,11 +8,15 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Configurable;
 
+import com.krishagni.catissueplus.core.administrative.domain.ScheduledJobRun;
 import com.krishagni.catissueplus.core.administrative.events.ListPvCriteria;
 import com.krishagni.catissueplus.core.administrative.events.PvDetail;
+import com.krishagni.catissueplus.core.administrative.services.ScheduledTask;
 import com.krishagni.catissueplus.core.biospecimen.domain.CollectionProtocol;
 import com.krishagni.catissueplus.core.biospecimen.domain.CollectionProtocolEvent;
 import com.krishagni.catissueplus.core.biospecimen.domain.SpecimenRequirement;
@@ -28,11 +32,10 @@ import com.krishagni.catissueplus.core.common.events.RequestEvent;
 import com.krishagni.catissueplus.core.common.events.ResponseEvent;
 import com.krishagni.catissueplus.core.common.events.UserSummary;
 import com.krishagni.catissueplus.core.common.service.PermissibleValueService;
-import com.krishagni.catissueplus.core.importer.events.ImportObjectDetail;
-import com.krishagni.catissueplus.core.importer.services.ObjectImporter;
 
 @Configurable
-public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
+public class CarsImporter implements ScheduledTask {
+	private final static Log logger = LogFactory.getLog(CarsImporter.class);
 	
 	@Autowired
 	private CollectionProtocolService cpSvc;
@@ -54,23 +57,32 @@ public class CarsImporter implements ObjectImporter<CarsDetail, CarsDetail> {
 	private final static String NOT_SPECIFIED = "Not Specified";
 	
 	@Override
-	public ResponseEvent<CarsDetail> importObject(RequestEvent<ImportObjectDetail<CarsDetail>> req) {
+	public void doJob(ScheduledJobRun jobRun) throws Exception {
+		CarsReader carsReader = new CarsReader();
 		try {
-			ImportObjectDetail<CarsDetail> detail = req.getPayload();
-			importRecord(detail);
-			return ResponseEvent.response(detail.getObject());
-		} catch (OpenSpecimenException ose) {
-			return ResponseEvent.error(ose);
+			while (carsReader.hasNext()) {
+				importTuple(carsReader.next());
+			}
 		} catch (Exception e) {
-			return ResponseEvent.serverError(e);
+			logger.error(e);
+		} finally {
+			carsReader.close();
 		}
 	}
 	
+	private void importTuple(CarsDetail detail) throws Exception {
+		try {
+			importRecord(detail);
+		} catch (OpenSpecimenException ose) {
+			logger.error(ose);
+		}
+	}
+
 	@PlusTransactional
-	private ResponseEvent<Object> importRecord(ImportObjectDetail<CarsDetail> detail) throws Exception {
-		CollectionProtocolDetail cp = toCp(detail.getObject());
-		CollectionProtocolEventDetail event = toEvent(detail.getObject());
-		SpecimenRequirementDetail sr = toSr(detail.getObject());
+	private ResponseEvent<Object> importRecord(CarsDetail detail) throws Exception {
+		CollectionProtocolDetail cp = toCp(detail);
+		CollectionProtocolEventDetail event = toEvent(detail);
+		SpecimenRequirementDetail sr = toSr(detail);
 		
 		getCp(cp);
 		getEvent(event);
