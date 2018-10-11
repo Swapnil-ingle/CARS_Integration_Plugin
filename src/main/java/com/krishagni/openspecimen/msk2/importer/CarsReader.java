@@ -16,16 +16,10 @@ public class CarsReader {
 	
 	private SqlRowSet rowSet;
 	
-	private final static String DB_URL = "jdbc:sqlserver://localhost:1433;" + "databaseName=MSK_CARS;";
-	
-	private final static String DB_USERNAME = "SA";
-	
-	private final static String DB_PASSWORD = "Login@123";
-	
 	private final static String SQL_QUERY = "SELECT * FROM CARS_DETAILS";
 	
 	public CarsReader() {
-		this.scds = new SingleConnectionDataSource(DB_URL, DB_USERNAME, DB_PASSWORD, true);
+		this.scds = new SingleConnectionDataSource(ConfigParams.getUrl(), ConfigParams.getUsername(), ConfigParams.getPassword(), true);
 		JdbcTemplate jdbcTemplate = new JdbcTemplate(scds);
 		this.rowSet = jdbcTemplate.queryForRowSet(SQL_QUERY);
 	}
