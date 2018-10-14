@@ -14,32 +14,60 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class CarsReader {
 	private SingleConnectionDataSource scds;
 	
+	private JdbcTemplate jdbcTemplate;
+	
 	private SqlRowSet rowSet;
 	
-	private final static String SQL_QUERY = "SELECT * FROM CARS_DETAILS";
+	private SqlRowSet cpRowSet;
+	
+	private final static String SQL_GET_DISTINCT_IRBNUMBER = "SELECT DISTINCT(IRBNUMBER)\n" + 
+			"FROM CARS_DETAILS\n" + 
+			"WHERE TIMEPOINT_CR_DATE > (getdate() -1)\n" + 
+			"  OR TIMEPOINT_UPDATE > (getdate() -1)\n" + 
+			"  OR PROCEDURE_CR_DATE > (getdate() -1)\n" + 
+			"  OR PROCEDURE_UPDATE > (getdate() -1);";
 	
 	public CarsReader() {
 		this.scds = new SingleConnectionDataSource(ConfigParams.getUrl(), ConfigParams.getUsername(), ConfigParams.getPassword(), true);
-		JdbcTemplate jdbcTemplate = new JdbcTemplate(scds);
-		this.rowSet = jdbcTemplate.queryForRowSet(SQL_QUERY);
+		this.jdbcTemplate = new JdbcTemplate(scds);
+		this.rowSet = jdbcTemplate.queryForRowSet(SQL_GET_DISTINCT_IRBNUMBER);
 	}
 	
-	public CarsDetail next() {
+	public boolean hasDistinctCp() {
+		return rowSet.next() == true ? loadNextCpSet() : false;
+	}
+	
+	public boolean loadNextCpSet() {
+		this.cpRowSet = jdbcTemplate.queryForRowSet(getCpRowSetQuery(rowSet.getObject(1).toString()));
+		return true;
+	}
+	
+	private String getCpRowSetQuery(String IRBNUMBER) {
+		return "SELECT * "
+				+ "FROM CARS_DETAILS "
+				+ "WHERE IRBNUMBER= '" +  IRBNUMBER + "' "
+				+ "AND (TIMEPOINT_CR_DATE > (getdate() -1) "
+				+ "OR TIMEPOINT_UPDATE > (getdate() -1) "
+				+ "OR PROCEDURE_CR_DATE > (getdate() -1) "
+				+ "OR PROCEDURE_UPDATE > (getdate() -1));";
+	}
+	
+	public boolean hasCp() {
+		return cpRowSet.next();
+	}
+	
+	public CarsDetail nextCp() {
 		ObjectMapper objMapper = new ObjectMapper();
 		objMapper.configure(MapperFeature.ACCEPT_CASE_INSENSITIVE_PROPERTIES, true);
 		return objMapper.convertValue(getAttrValueMap(), CarsDetail.class);
 	}
-	
+
 	private Map<String, Object> getAttrValueMap() {
-		String[] attrs = rowSet.getMetaData().getColumnNames();
+		String[] attrs = cpRowSet.getMetaData().getColumnNames();
 		Map<String, Object> attrValueMap = new HashMap<>();
-		Arrays.asList(attrs).forEach(attr -> attrValueMap.put(attr, rowSet.getObject(attr)));
+		Arrays.asList(attrs).forEach(attr -> attrValueMap.put(attr, cpRowSet.getObject(attr)));
 		
 		return attrValueMap;
-	}
-
-	public boolean hasNext() {
-		return rowSet.next();
 	}
 	
 	public void close() {

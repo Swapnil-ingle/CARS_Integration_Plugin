@@ -2,12 +2,13 @@ package com.krishagni.openspecimen.msk2.importer;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Collections;
-import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +20,6 @@ import com.krishagni.catissueplus.core.administrative.events.PvDetail;
 import com.krishagni.catissueplus.core.administrative.services.ScheduledTask;
 import com.krishagni.catissueplus.core.biospecimen.domain.CollectionProtocol;
 import com.krishagni.catissueplus.core.biospecimen.domain.CollectionProtocolEvent;
-import com.krishagni.catissueplus.core.biospecimen.domain.SpecimenRequirement;
 import com.krishagni.catissueplus.core.biospecimen.events.CollectionProtocolDetail;
 import com.krishagni.catissueplus.core.biospecimen.events.CollectionProtocolEventDetail;
 import com.krishagni.catissueplus.core.biospecimen.events.CollectionProtocolSiteDetail;
@@ -46,12 +46,6 @@ public class CarsImporter implements ScheduledTask {
 	@Autowired
 	private DaoFactory daoFactory;
 	
-	private Map<String, CollectionProtocolDetail> cpMap = new HashMap<>();
-	
-	private Map<String, CollectionProtocolEventDetail> eventsMap = new HashMap<>();
-	
-	private Map<String, SpecimenRequirementDetail> srMap = new HashMap<>();
-	
 	private final static String SPECIMEN_STORAGE_TYPE_VIRTUAL = "Virtual";
 	
 	private final static String NOT_SPECIFIED = "Not Specified";
@@ -60,8 +54,8 @@ public class CarsImporter implements ScheduledTask {
 	public void doJob(ScheduledJobRun jobRun) throws Exception {
 		CarsReader carsReader = new CarsReader();
 		try {
-			while (carsReader.hasNext()) {
-				importTuple(carsReader.next());
+			while (carsReader.hasDistinctCp()) {
+				importRecords(carsReader);
 			}
 		} catch (Exception e) {
 			logger.error(e);
@@ -70,25 +64,84 @@ public class CarsImporter implements ScheduledTask {
 		}
 	}
 	
-	private void importTuple(CarsDetail detail) throws Exception {
+	private void importRecords(CarsReader carsReader) throws Exception {
 		try {
-			importRecord(detail);
+			CarsCpDetail carsCpDetail = getCarsCpDetail(carsReader);
+			processCpDiff(carsCpDetail);
 		} catch (OpenSpecimenException ose) {
 			logger.error(ose);
 		}
 	}
-
+	
+	private CarsCpDetail getCarsCpDetail(CarsReader carsReader) {
+		CarsCpDetail carsCpDetail = new CarsCpDetail();
+		
+		while (carsReader.hasCp()) {
+			CarsDetail carsDetail = carsReader.nextCp();
+			
+			CollectionProtocolDetail cp = toCp(carsDetail);
+			CollectionProtocolEventDetail event = toEvent(carsDetail);
+			SpecimenRequirementDetail sr = toSr(carsDetail);
+			
+			carsCpDetail = carsCpDetail.from(cp, event, sr);
+		}
+		return carsCpDetail;
+	}
+	
 	@PlusTransactional
-	private ResponseEvent<Object> importRecord(CarsDetail detail) throws Exception {
-		CollectionProtocolDetail cp = toCp(detail);
-		CollectionProtocolEventDetail event = toEvent(detail);
-		SpecimenRequirementDetail sr = toSr(detail);
+	private void processCpDiff(CarsCpDetail carsCpDetail) throws Exception {
+		CollectionProtocolDetail osCp = getCpFromDB(carsCpDetail.getCpShortTitle());
 		
-		getCp(cp);
-		getEvent(event);
-		getSr(sr);
+		if (osCp == null) {
+			createCp(carsCpDetail);
+			return;
+		}
 		
-		return null;
+		List<CollectionProtocolEvent> existingEvents = getEventsFromDb(osCp.getShortTitle());
+		
+		processEvents(eventDetailListFrom(existingEvents), carsCpDetail.getEvents());
+		processSr(getSpecmnReqFromEvents(existingEvents), carsCpDetail.getSpecmnReqs());
+	}
+	
+	private void processEvents(List<CollectionProtocolEventDetail> existingEvents,
+			List<CollectionProtocolEventDetail> newEvents) throws OpenSpecimenException {
+		List<String> existingEventLabels = nullableListToStream(existingEvents)
+				.map(CollectionProtocolEventDetail::getEventLabel)
+				.collect(Collectors.toList());
+		
+		List<String> newEventLabels = nullableListToStream(newEvents)
+				.map(CollectionProtocolEventDetail::getEventLabel)
+				.collect(Collectors.toList());
+		
+		List<CollectionProtocolEventDetail> eventsAdded = eventsAdded(existingEventLabels, newEvents);
+		List<CollectionProtocolEventDetail> eventsUpdated = eventsUpdated(existingEventLabels, newEvents);
+		List<CollectionProtocolEventDetail> eventsDeleted = eventsDeleted(existingEvents, newEventLabels);
+		
+		eventsAdded.forEach(event -> createEvent(event));
+		eventsUpdated.forEach(event -> updateEvent(event)); 
+		eventsDeleted.forEach(event -> deleteEvent(event));
+	}
+	
+	private void processSr(List<SpecimenRequirementDetail> existingSpecmnReqs, 
+			List<SpecimenRequirementDetail> newSpecmnReqs) throws OpenSpecimenException {
+		List<String> existingSrNames = getSrNames(existingSpecmnReqs);
+		List<String> newSrNames = getSrNames(newSpecmnReqs);
+		
+		List<SpecimenRequirementDetail> srAdded = addedSrs(existingSrNames, newSpecmnReqs);
+		List<SpecimenRequirementDetail> srUpdated = updatedSrs(existingSrNames, newSpecmnReqs);
+		List<SpecimenRequirementDetail> srDeleted = deletedSrs(existingSpecmnReqs, newSrNames);
+		
+		srAdded.forEach(sr -> createSr(sr));
+		srUpdated.forEach(sr -> updateSr(existingSpecmnReqs, sr));
+		srDeleted.forEach(sr -> deleteSr(sr));
+	}
+	
+	private static <T> Stream<T> nullableListToStream(List<T> list) {
+	    return list == null ? Stream.empty() : list.stream();
+	}
+	
+	private static <T> Stream<T> nullableListToStream(Set<T> set) {
+	    return set == null ? Stream.empty() : set.stream();
 	}
 	
 	private <T> RequestEvent<T> request(T payload) {
@@ -112,6 +165,12 @@ public class CarsImporter implements ScheduledTask {
 		return cp;
 	}
 	
+	private void createCp(CarsCpDetail carsCpDetail) throws Exception {
+		createCp(carsCpDetail.getCp());
+		carsCpDetail.getEvents().forEach(event -> createEvent(event));
+		carsCpDetail.getSpecmnReqs().forEach(sr -> createSr(sr));
+	}
+	
 	private void setCpSites(CarsDetail input, CollectionProtocolDetail cpDetail) {
 		CollectionProtocolSiteDetail cpSite = new CollectionProtocolSiteDetail();
 		cpSite.setSiteName(input.getFacility());
@@ -123,15 +182,6 @@ public class CarsImporter implements ScheduledTask {
 		UserSummary pi = new UserSummary();
 		pi.setEmailAddress(input.getPi());
 		cpDetail.setPrincipalInvestigator(pi);
-	}
-
-	private CollectionProtocolDetail getCp(CollectionProtocolDetail input) throws Exception {
-		return cpMap.computeIfAbsent(input.getShortTitle(), k -> createIfAbsent(input));
-	}
-	
-	private CollectionProtocolDetail createIfAbsent(CollectionProtocolDetail input) throws OpenSpecimenException {
-		CollectionProtocolDetail dbCp = getCpFromDB(input.getShortTitle());
-		return dbCp != null ? dbCp : createCp(input);
 	}
 
 	private CollectionProtocolDetail getCpFromDB(String cpShortTitle) {
@@ -167,34 +217,51 @@ public class CarsImporter implements ScheduledTask {
 		}
 		eventDetail.setEventLabel(input.getCycleName() + input.getTimepointName());
 	}
-
-	private void getEvent(CollectionProtocolEventDetail input) throws Exception {
-		CollectionProtocolEventDetail eventDetail = eventsMap.get(input.getEventLabel());
-		
-		if (eventDetail == null) {
-			CollectionProtocolEvent eventFromDb = getEventFromDb(input.getCpShortTitle(), input.getEventLabel());
-			eventDetail = eventFromDb != null ? CollectionProtocolEventDetail.from(eventFromDb) : null;
-		}
-		
-		if (eventDetail != null) {
-			updateEvent(eventDetail, input);
-		} else {
-			eventDetail = createEvent(input);
-		}
-		
-		eventsMap.put(input.getEventLabel(), eventDetail);
-	}
-
-	private CollectionProtocolEvent getEventFromDb(String cpShortTitle, String eventLabel) {
-		return daoFactory.getCollectionProtocolDao().getCpeByShortTitleAndEventLabel(cpShortTitle, eventLabel);
+	
+	private List<CollectionProtocolEvent> getEventsFromDb(String cpShortTitle) {
+		return daoFactory.getCollectionProtocolDao().getCpByShortTitle(cpShortTitle).getOrderedCpeList();
 	}
 	
-	private void updateEvent(CollectionProtocolEventDetail existingEvent, CollectionProtocolEventDetail newEvent) {
+	private List<CollectionProtocolEventDetail> eventDetailListFrom(List<CollectionProtocolEvent> events) {
+		return nullableListToStream(events)
+				.map(CollectionProtocolEventDetail::from)
+				.collect(Collectors.toList());
+	}
+	
+	private List<CollectionProtocolEventDetail> eventsAdded(List<String> existingEventLabels,
+			List<CollectionProtocolEventDetail> newEvents) {
+		return nullableListToStream(newEvents)
+				.filter(newEvent -> !existingEventLabels.contains(newEvent.getEventLabel()))
+				.collect(Collectors.toList());
+	}
+	
+	private List<CollectionProtocolEventDetail> eventsUpdated(List<String> existingEventLabels,
+			List<CollectionProtocolEventDetail> newEvents) {
+		return nullableListToStream(newEvents)
+				.filter(newEvent -> existingEventLabels.contains(newEvent.getEventLabel()))
+				.collect(Collectors.toList());
+	}
+	
+	private List<CollectionProtocolEventDetail> eventsDeleted(List<CollectionProtocolEventDetail> existingEvents,
+			List<String> newEventLabels) {
+		return nullableListToStream(existingEvents)
+				.filter(existingEvent -> !newEventLabels.contains(existingEvent.getEventLabel()))
+				.collect(Collectors.toList());
+	}
+	
+	private CollectionProtocolEventDetail createEvent(CollectionProtocolEventDetail input) throws OpenSpecimenException {
+		ResponseEvent<CollectionProtocolEventDetail> resp = cpSvc.addEvent(request(input));
+		resp.throwErrorIfUnsuccessful();
+		
+		return resp.getPayload();
+	}
+
+	private void updateEvent(CollectionProtocolEventDetail newEvent) {
 		// This Scenario is not yet handled
 	}
 	
-	private CollectionProtocolEventDetail createEvent(CollectionProtocolEventDetail input) throws Exception {
-		ResponseEvent<CollectionProtocolEventDetail> resp = cpSvc.addEvent(request(input));
+	private Object deleteEvent(CollectionProtocolEventDetail event) throws OpenSpecimenException {
+		ResponseEvent<CollectionProtocolEventDetail> resp = cpSvc.deleteEvent(request(event.getId()));
 		resp.throwErrorIfUnsuccessful();
 		
 		return resp.getPayload();
@@ -238,41 +305,51 @@ public class CarsImporter implements ScheduledTask {
 		return payload.isEmpty() ? "" : payload.iterator().next().getParentValue();
 	}
 	
-	private void getSr(SpecimenRequirementDetail input) throws Exception {
-		SpecimenRequirementDetail srDetail = srMap.get(input.getName());
-		
-		if (srDetail == null) {
-			SpecimenRequirement srFromDb = getSrFromDb(input);
-			srDetail = srFromDb != null ? SpecimenRequirementDetail.from(srFromDb) : null;
-		}
-		
-		if (srDetail != null) {
-			updateSr(srDetail, input);
-		} else {
-			srDetail = createSr(input);
-		}
-		
-		srMap.put(input.getName(), srDetail);
+	private List<String> getSrNames(List<SpecimenRequirementDetail> specmnReq) {
+		return nullableListToStream(specmnReq)
+				.map(SpecimenRequirementDetail::getName)
+				.collect(Collectors.toList());
 	}
 	
-	private SpecimenRequirement getSrFromDb(SpecimenRequirementDetail sr) {
-		CollectionProtocolEvent cpe = daoFactory
-				.getCollectionProtocolDao()
-				.getCpeByShortTitleAndEventLabel(sr.getCpShortTitle(), sr.getEventLabel());
-		
-		Set<SpecimenRequirement> specimenRequirements = cpe != null ? cpe.getTopLevelAnticipatedSpecimens() : Collections.emptySet();
-		
-		//
-		// Currently assuming each CP -> Event -> Has only one SR with a unique name
-		//
-		
-		String srName = sr.getName();
-		return specimenRequirements.stream()
-				.filter(req -> req.getName().equalsIgnoreCase(srName))
-				.findFirst().orElse(null);
+	private List<SpecimenRequirementDetail> addedSrs(List<String> existingSrNames, 
+			List<SpecimenRequirementDetail> newSpecmnReqs) {
+		return nullableListToStream(newSpecmnReqs)
+				.filter(newSr -> !existingSrNames.contains(newSr.getName()))
+				.collect(Collectors.toList());
 	}
 	
-	private SpecimenRequirementDetail updateSr(SpecimenRequirementDetail exisitingSr, SpecimenRequirementDetail newSr) throws Exception {
+	private List<SpecimenRequirementDetail> updatedSrs(List<String> existingSrNames,
+			List<SpecimenRequirementDetail> newSpecmnReqs) {
+		return nullableListToStream(newSpecmnReqs)
+				.filter(newSr -> existingSrNames.contains(newSr.getName()))
+				.collect(Collectors.toList());
+	}
+
+	private List<SpecimenRequirementDetail> deletedSrs(List<SpecimenRequirementDetail> existingSpecmnReqs,
+			List<String> newSrNames) {
+		return nullableListToStream(existingSpecmnReqs)
+				.filter(existingSr -> !newSrNames.contains(existingSr.getName()))
+				.collect(Collectors.toList());
+	}
+	
+	private SpecimenRequirementDetail createSr(SpecimenRequirementDetail input) throws OpenSpecimenException {
+		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.addSpecimenRequirement(request(input));
+		resp.throwErrorIfUnsuccessful();
+		
+		return resp.getPayload();
+	}
+	
+	private void updateSr(List<SpecimenRequirementDetail> existingSpecmnReqs, 
+			SpecimenRequirementDetail sr) throws OpenSpecimenException {
+		SpecimenRequirementDetail existingSr = existingSpecmnReqs.stream()
+				.filter(osSr -> StringUtils.equals(osSr.getName(), sr.getName()))
+				.findFirst().get();
+		
+		updateSr(existingSr, sr);
+	}
+	
+	private SpecimenRequirementDetail updateSr(SpecimenRequirementDetail exisitingSr, 
+			SpecimenRequirementDetail newSr) throws OpenSpecimenException {
 		newSr.setId(exisitingSr.getId());
 		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.updateSpecimenRequirement(request(newSr));
 		resp.throwErrorIfUnsuccessful();
@@ -280,10 +357,24 @@ public class CarsImporter implements ScheduledTask {
 		return resp.getPayload();
 	}
 	
-	private SpecimenRequirementDetail createSr(SpecimenRequirementDetail input) throws Exception {
-		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.addSpecimenRequirement(request(input));
-		resp.throwErrorIfUnsuccessful();
+	private SpecimenRequirementDetail deleteSr(SpecimenRequirementDetail sr) {
+		if (eventAlreadyDeleted(sr.getEventId())) {
+			return null;
+		}
 		
+		ResponseEvent<SpecimenRequirementDetail> resp = cpSvc.deleteSpecimenRequirement(request(sr.getId()));
+		resp.throwErrorIfUnsuccessful();
 		return resp.getPayload();
+	}
+	
+	private boolean eventAlreadyDeleted(Long eventId) {
+		return daoFactory.getCollectionProtocolDao().getCpe(eventId) == null ? true : false;
+	}
+	
+	private List<SpecimenRequirementDetail> getSpecmnReqFromEvents(List<CollectionProtocolEvent> events) {
+		return nullableListToStream(events)
+				.flatMap(event -> nullableListToStream(event.getTopLevelAnticipatedSpecimens()))
+				.map(SpecimenRequirementDetail::from)
+				.collect(Collectors.toList());
 	}
 }
