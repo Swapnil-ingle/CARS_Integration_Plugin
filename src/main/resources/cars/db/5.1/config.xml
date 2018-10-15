@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+ <databaseChangeLog 
+   xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd">
+   
+   <changeSet author="sIngle" id="CARS plugin configuration settings module" dbms="mysql">
+    <sql>
+      insert into os_modules
+        (identifier, name, description)
+      values
+        (default, 'cars', 'CARS')
+    </sql>
+  </changeSet>
+
+  <changeSet author="sIngle" id="CARS plugin configuration settings module" dbms="oracle">
+    <sql>
+      insert into os_modules
+        (identifier, name, description)
+      values
+        (OS_MODULES_SEQ.nextval, 'cars', 'CARS')
+    </sql>
+  </changeSet>
+   
+   <changeSet author="sIngle" id="Setting to specify cars database connection URL">
+     <sql>
+       call add_cfg_prop(
+         'cars', 'cars_db_url',
+         'cars_db_url', 'cars_db_url_desc',
+         'STRING', ''
+       );
+     </sql>
+   </changeSet>
+   
+   <changeSet author="sIngle" id="Setting to specify cars database username">
+     <sql>
+       call add_cfg_prop(
+         'cars', 'cars_db_username',
+         'cars_db_username', 'cars_db_username_desc',
+         'STRING', ''
+       );
+     </sql>
+   </changeSet>
+   
+   <changeSet author="sIngle" id="Setting to specify cars database password">
+     <sql>
+       call add_secured_cfg_prop(
+         'cars', 'cars_db_password',
+         'cars_db_password', 'cars_db_password_desc',
+         'STRING', ''
+       );
+     </sql>
+   </changeSet>
+</databaseChangeLog>
